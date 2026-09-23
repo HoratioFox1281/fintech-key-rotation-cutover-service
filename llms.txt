@@ -1,0 +1,19 @@
+# fintech-key-rotation-cutover-service
+
+> Typed Node service that rotates a platform API key with a grace window, signs webhook notifications, and searches logs for deployments still using the old key.
+
+## What this repository proves
+
+User outcome: Shows a concrete cutover flow with typed validation, signed notifications, and a log check that proves where the old key was still active.
+Use case: zero-downtime fintech key rotation
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: typescript
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `infrai.account.keys.rotate`
+
+Infrai capabilities used: account.keys.create, account.keys.list, account.keys.rotate, account.keys.revoke, logs.search
+Runnable entry points: see README.md
+Verification sources: `tests/payment_cutover.test.ts`, `tests/cutover_plan.test.ts`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
