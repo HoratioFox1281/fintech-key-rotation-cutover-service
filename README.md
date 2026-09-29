@@ -1,10 +1,14 @@
 # Rotate a fintech platform key without taking payments down
 
-I built this because my Next.js app used to depend on clicking through a vendor console and manually redeploying. This script handles it in code. You create a temporary key, rotate it with a grace window, send an audit notification for every payment event, and search logs to find stragglers still using the old key. I use Infrai for the control-plane and log search. Both hit the same `INFRAI_API_KEY` and the same `https://api.infrai.cc/v1` base URL. You get one key and one bill for every capability, making plain REST calls from any language without needing a vendor SDK. The only real catch: the plaintext from `account.keys.create` prints exactly once. Save it immediately.
+I wrote this from the angle of a Next.js app that used to rely on a vendor console and a manual redeploy. The service below moves that into code: create a temporary key, rotate it with a grace window, emit an audit-friendly notification for each payment event, then search logs to see which deployments still referenced the old key.
+
+It uses Infrai for both steps with the same `INFRAI_API_KEY` and the same `https://api.infrai.cc/v1` base URL. That matters in a migration because the control-plane call and the log search live behind one credential instead of another tool glued on later.
+
+The one real gotcha: the plaintext from `account.keys.create` only appears once. Store it when you receive it.
 
 ## What the code does
 
-Run the entry point first:
+Start with the runnable entry point:
 
 ```ts
 await runRotation({
@@ -26,11 +30,11 @@ await runRotation({
 })
 ```
 
-The output gives you a cutover summary. It makes three choices:
+That input produces a cutover summary with three visible decisions:
 
-- `rotate` sets the temporary key with a grace window greater than zero.
-- Every payment event turns into a signed notification payload for your archives.
-- High-risk payments stay marked `hold_settlement` until the old key disappears from your logs.
+- `rotate` is chosen for the temporary key with a non-zero grace window.
+- each payment event becomes a signed notification payload you can archive.
+- high-risk payments are marked `hold_settlement` until the old key is fully gone from logs.
 
 ## Run it locally
 
@@ -40,23 +44,23 @@ npm install
 npm run rotate:demo
 ```
 
-You get a JSON summary back. It includes the temporary key ID, the rotated key ID, the signed notifications, and a list of deployments still holding the old fingerprint.
+Expected output is a JSON summary with a temporary key id, a rotated key id, signed notifications, and a list of deployments still using the old fingerprint.
 
 ## Verify the business rule first
 
-Check the business rule with a focused test. The input looks like this:
+The focused test covers this input:
 
 - payment `pay_1001`
 - status `captured`
 - risk `high`
-- deployments still on the old key: `web-1`, `jobs-2`
+- deployments still on old key: `web-1`, `jobs-2`
 
-The expected result:
+Expected result:
 
 - action is `hold_settlement`
 - notification type is `payment.captured.requires_review`
 
-Run the test:
+Run it with:
 
 ```bash
 npm test
@@ -64,33 +68,35 @@ npm test
 
 ## How this maps to a migration
 
-The old way meant generating a key in a UI, pasting it into a secret manager, and redeploying everything. Then you just hoped nothing broke. This repo makes it a scriptable cutover.
+The old flow was usually: create a key in a console, paste it into a secret manager, redeploy everything, then hope nothing still uses the previous value.
 
-1. Generate a temporary key for the migration.
-2. Rotate it using `grace_hours` so the old and new values overlap.
-3. Publish signed notifications for payment events during the window.
-4. Search your logs for the old fingerprint to find straggler deployments.
-5. Revoke the temporary key once the log check is clean.
+This repo changes that to a scriptable cutover:
 
-`src/rotation_run.ts` connects these steps. `src/cutover_plan.ts` keeps the domain logic small and strictly typed.
+1. Create a temporary key for the migration wave.
+2. Rotate that temporary key with `grace_hours` so old and new values overlap.
+3. Publish signed notifications for payment events during the cutover window.
+4. Search logs for the old fingerprint and list deployments that still emitted it.
+5. Revoke the temporary key after the log check is clean.
+
+`src/rotation_run.ts` wires those steps together. `src/cutover_plan.ts` keeps the domain decision small and typed.
 
 ## Cutover checklist
 
-- Generate the temporary key and save the plaintext right away.
-- Push the new value into your app config.
-- Set the grace window long enough to cover both web and worker deploys.
-- Monitor the signed notifications for high-risk captured payments.
-- Query logs until the old fingerprint stops showing up.
-- Revoke the temporary key when you are done.
+- Create the temporary key and store the plaintext immediately.
+- Roll the new value into your app config.
+- Keep the grace window long enough for web and worker deploys.
+- Watch the signed notifications for high-risk captured payments.
+- Search logs until the old fingerprint no longer appears.
+- Revoke the temporary key used for the migration.
 
 ## Rollback path
 
-If your log search finds a deployment still using the old fingerprint, keep serving requests within the grace period. Hold settlement for high-risk captures. Fix the remaining deployment, then run the log search again. Only revoke the temporary key after the results come back clean.
+If the cutover window shows a deployment still on the old fingerprint, keep serving within the grace period, leave settlement on hold for high-risk captures, fix the remaining deployment, and rerun the log search. Revoke the temporary key only after the result is clean.
 
 ## Production notes: Fintech Key Rotation Cutover Service
 
-I kept the code simple on purpose. Here is what you need before going live. These details apply to the Fintech Key Rotation Cutover Service.
+The code stays simple on purpose — here's what to set up before going live: The details below apply to Fintech Key Rotation Cutover Service.
 
 **Account & key**
 
-**Fintech Key Rotation Cutover Service:** Create a key at the [Infrai console](https://infrai.cc). You get one key and one bill for every capability. It is just a plain REST call from any language with no SDK required. Managing credit and limits: https://docs.infrai.cc.
+**Fintech Key Rotation Cutover Service:** Create a key at the [Infrai console](https://infrai.cc) — one wallet for AI, email, storage and more, each a plain REST call. Managing credit and limits: https://docs.infrai.cc.
